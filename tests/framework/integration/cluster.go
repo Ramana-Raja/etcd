@@ -174,6 +174,7 @@ type ClusterConfig struct {
 	DisableStrictReconfigCheck  bool
 	CorruptCheckTime            time.Duration
 	Metrics                     string
+	ServerFeatureGates          string
 }
 
 type Cluster struct {
@@ -287,6 +288,7 @@ func (c *Cluster) MustNewMember(t testutil.TB) *Member {
 			DisableStrictReconfigCheck:  c.Cfg.DisableStrictReconfigCheck,
 			CorruptCheckTime:            c.Cfg.CorruptCheckTime,
 			Metrics:                     c.Cfg.Metrics,
+			ServerFeatureGates:          c.Cfg.ServerFeatureGates,
 		})
 	return m
 }
@@ -617,6 +619,7 @@ type MemberConfig struct {
 	DisableStrictReconfigCheck  bool
 	CorruptCheckTime            time.Duration
 	Metrics                     string
+	ServerFeatureGates          string
 }
 
 // MustNewMember return an inited member with the given name. If peerTLS is
@@ -735,6 +738,9 @@ func MustNewMember(t testutil.TB, mcfg MemberConfig) *Member {
 	m.Logger, m.LogObserver = memberLogger(t, mcfg.Name)
 	m.ServerFeatureGate = features.NewDefaultServerFeatureGate(m.Name, m.Logger)
 	featureGates := fmt.Sprintf("LeaseCheckpoint=%v,LeaseCheckpointPersist=%v", mcfg.EnableLeaseCheckpoint, mcfg.LeaseCheckpointPersist)
+	if mcfg.ServerFeatureGates != "" {
+		featureGates = fmt.Sprintf("%s,%s", featureGates, mcfg.ServerFeatureGates)
+	}
 	if err := m.ServerFeatureGate.(featuregate.MutableFeatureGate).Set(featureGates); err != nil {
 		t.Fatalf("Set FeatureGate FAILED: %v", err)
 	}

@@ -84,6 +84,9 @@ func Server(s *etcdserver.EtcdServer, tls *tls.Config, interceptor grpc.UnarySer
 	pb.RegisterAuthServer(grpcServer, NewAuthServer(s))
 
 	hsrv := health.NewServer()
+	if hc := s.HealthChecker(); hc != nil {
+		hc.RegisterHealthServer(hsrv)
+	}
 	healthNotifier := newHealthNotifier(hsrv, s)
 	healthpb.RegisterHealthServer(grpcServer, hsrv)
 	pb.RegisterMaintenanceServer(grpcServer, NewMaintenanceServer(s, healthNotifier))

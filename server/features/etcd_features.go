@@ -94,6 +94,9 @@ const (
 	// owner: @ahrtr
 	// beta: v3.8
 	NonBlockingDefrag featuregate.Feature = "NonBlockingDefrag"
+	// ServerHealthCheck enables periodic serving health checks on each server member via grpc.health.v1.
+	// alpha: v3.8
+	ServerHealthCheck featuregate.Feature = "ServerHealthCheck"
 )
 
 var DefaultEtcdServerFeatureGates = map[featuregate.Feature]featuregate.FeatureSpec{
@@ -107,6 +110,7 @@ var DefaultEtcdServerFeatureGates = map[featuregate.Feature]featuregate.FeatureS
 	FastLeaseKeepAlive:           {Default: true, PreRelease: featuregate.Beta},
 	PriorityRequest:              {Default: false, PreRelease: featuregate.Alpha},
 	NonBlockingDefrag:            {Default: true, PreRelease: featuregate.Beta},
+	ServerHealthCheck:            {Default: false, PreRelease: featuregate.Alpha},
 }
 
 func NewDefaultServerFeatureGate(name string, lg *zap.Logger) featuregate.FeatureGate {

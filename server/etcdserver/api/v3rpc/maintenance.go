@@ -31,6 +31,7 @@ import (
 	"go.etcd.io/etcd/server/v3/etcdserver"
 	"go.etcd.io/etcd/server/v3/etcdserver/apply"
 	"go.etcd.io/etcd/server/v3/etcdserver/errors"
+	"go.etcd.io/etcd/server/v3/etcdserver/healthcheck"
 	serverversion "go.etcd.io/etcd/server/v3/etcdserver/version"
 	"go.etcd.io/etcd/server/v3/storage"
 	"go.etcd.io/etcd/server/v3/storage/backend"
@@ -88,6 +89,7 @@ type maintenanceServer struct {
 	vs     serverversion.Server
 	cg     ConfigGetter
 
+	healthChecker  *healthcheck.ServerHealthChecker
 	healthNotifier notifier
 
 	// we want compile errors if new methods are added
@@ -107,6 +109,7 @@ func NewMaintenanceServer(s *etcdserver.EtcdServer, healthNotifier notifier) pb.
 		cs:             s,
 		d:              s,
 		vs:             etcdserver.NewServerVersionAdapter(s),
+		healthChecker:  s.HealthChecker(),
 		healthNotifier: healthNotifier,
 		cg:             s,
 	}
@@ -118,8 +121,13 @@ func NewMaintenanceServer(s *etcdserver.EtcdServer, healthNotifier notifier) pb.
 
 func (ms *maintenanceServer) Defragment(ctx context.Context, sr *pb.DefragmentRequest) (*pb.DefragmentResponse, error) {
 	ms.lg.Info("starting defragment")
-	ms.healthNotifier.defragStarted()
-	defer ms.healthNotifier.defragFinished()
+	if ms.healthChecker != nil {
+		ms.healthChecker.DefragStarted()
+		defer ms.healthChecker.DefragFinished()
+	} else {
+		ms.healthNotifier.defragStarted()
+		defer ms.healthNotifier.defragFinished()
+	}
 	err := ms.defrag.Defragment()
 	if err != nil {
 		ms.lg.Warn("failed to defragment", zap.Error(err))

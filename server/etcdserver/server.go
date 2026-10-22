@@ -61,6 +61,7 @@ import (
 	"go.etcd.io/etcd/server/v3/etcdserver/apply"
 	"go.etcd.io/etcd/server/v3/etcdserver/cindex"
 	"go.etcd.io/etcd/server/v3/etcdserver/errors"
+	"go.etcd.io/etcd/server/v3/etcdserver/healthcheck"
 	"go.etcd.io/etcd/server/v3/etcdserver/read"
 	serverversion "go.etcd.io/etcd/server/v3/etcdserver/version"
 	"go.etcd.io/etcd/server/v3/features"
@@ -292,6 +293,7 @@ type EtcdServer struct {
 	// TODO: Replace with flush db in v3.7 assuming v3.6 bootstraps from db file.
 	forceDiskSnapshot bool
 	corruptionChecker CorruptionChecker
+	healthChecker     *healthcheck.ServerHealthChecker
 }
 
 // NewServer creates a new EtcdServer from the supplied configuration. The
@@ -441,6 +443,20 @@ func NewServer(cfg config.ServerConfig) (srv *EtcdServer, err error) {
 	}
 	srv.r.transport = tr
 
+	if srv.FeatureEnabled(features.ServerHealthCheck) {
+		hcfg := healthcheck.Config{
+			Interval:          500 * time.Millisecond,
+			Timeout:           srv.Cfg.ReqTimeout(),
+			FailureThreshold:  3,
+			SuccessThreshold:  2,
+			ApplyLagThreshold: 5000,
+		}
+		srv.healthChecker = healthcheck.NewServerHealthChecker(srv, hcfg, healthcheck.Options{
+			Logger:                   srv.Logger(),
+			ServerHealthCheckEnabled: true,
+		})
+	}
+
 	return srv, nil
 }
 
@@ -542,6 +558,9 @@ func (s *EtcdServer) Start() {
 	s.GoAttach(s.monitorKVHash)
 	s.GoAttach(s.monitorCompactHash)
 	s.GoAttach(s.monitorDowngrade)
+	if s.healthChecker != nil {
+		s.GoAttach(func() { s.healthChecker.Run(s.ctx) })
+	}
 }
 
 // start prepares and starts server in a new goroutine. It is no longer safe to
@@ -575,6 +594,20 @@ func (s *EtcdServer) start() {
 	s.ctx, s.cancel = context.WithCancel(context.Background())
 	s.read = read.NewRead(s, &s.r)
 	s.leaderChanged = notify.NewNotifier()
+	if s.healthChecker == nil && s.Cfg.ServerFeatureGate != nil && s.FeatureEnabled(features.ServerHealthCheck) {
+		hcfg := healthcheck.Config{
+			Interval:          500 * time.Millisecond,
+			Timeout:           s.Cfg.ReqTimeout(),
+			FailureThreshold:  3,
+			SuccessThreshold:  2,
+			ApplyLagThreshold: 5000,
+		}
+		srvHealthChecker := healthcheck.NewServerHealthChecker(s, hcfg, healthcheck.Options{
+			Logger:                   s.Logger(),
+			ServerHealthCheckEnabled: true,
+		})
+		s.healthChecker = srvHealthChecker
+	}
 	if s.ClusterVersion() != nil {
 		lg.Info(
 			"starting etcd server",
@@ -2456,6 +2489,22 @@ func (s *EtcdServer) getTxPostLockInsideApplyHook() func() {
 
 func (s *EtcdServer) CorruptionChecker() CorruptionChecker {
 	return s.corruptionChecker
+}
+
+func (s *EtcdServer) HealthChecker() *healthcheck.ServerHealthChecker {
+	return s.healthChecker
+}
+
+func (s *EtcdServer) ElectionTimeout() time.Duration {
+	return s.Cfg.ElectionTimeout()
+}
+
+func (s *EtcdServer) SerializableReadCheck(ctx context.Context) error {
+	if s.kv == nil {
+		return errorspkg.New("kv not ready")
+	}
+	_, err := s.kv.Range(ctx, []byte{0}, nil, mvcc.RangeOptions{})
+	return err
 }
 
 func addFeatureGateMetrics(fg featuregate.FeatureGate, guageVec *prometheus.GaugeVec) {
